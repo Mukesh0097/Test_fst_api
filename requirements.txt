@@ -5,7 +5,7 @@ python-dotenv==1.0.1
 python-docx==0.8.11
 yt-dlp==2025.08.11
 aiohttp==3.8.6
-openai==1.29.0
+openai>=1.14.3
 
 
 
