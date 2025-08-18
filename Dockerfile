@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN apt-get update && apt-get install -y ffmpeg
 
 # Install the Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy the FastAPI app code to the container
 COPY main.py /usr/app
