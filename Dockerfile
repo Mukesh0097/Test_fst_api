@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py /usr/app
 
 ENV PORT 80
+ENV FFMPEG_LOCATION /usr/bin/ffmpeg
 
 # Expose the port on which the FastAPI app will run
 EXPOSE $PORT
