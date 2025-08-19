@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File,Form
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse,FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from docx import Document
@@ -18,6 +18,7 @@ import shutil
 import uuid
 import subprocess
 from openai import OpenAI
+
 
 load_dotenv()
 
@@ -114,6 +115,47 @@ async def transcribe_chunk(session, chunk_path: Path):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# @app.post("/api/download")
+# async def download_audio(body: DownloadRequest, request: Request):
+#     logger.info("Extracting audio info...")
+#     try:
+#         with tempfile.TemporaryDirectory() as temp_dir:
+#             ydl_opts = {
+#                 'format': 'bestaudio/best',
+#                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+#                 'noplaylist': True,
+#                 'quiet': True,
+#                 'cookiefile': '/etc/secrets/www.youtube.com_cookies.txt',
+#                 'postprocessors': [{
+#                     'key': 'FFmpegExtractAudio',
+#                     'preferredcodec': 'mp3',
+#                     'preferredquality': '192',
+#                 }],
+#             }
+
+#             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+#                 info = ydl.extract_info(body.url, download=True)
+#                 filename = ydl.prepare_filename(info)
+#                 audio_file = os.path.splitext(filename)[0] + '.mp3'
+#                 logger.info(f"Audio file path: {audio_file}")
+
+#                 if not os.path.exists(audio_file):
+#                     raise HTTPException(status_code=500, detail="Audio file not found")
+
+#                 sanitized_title = sanitize_filename(info.get('title', 'audio'))
+
+#                 return StreamingResponse(
+#                     open(audio_file, "rb"),
+#                     media_type="audio/mpeg",
+#                     headers={
+#                         "Content-Disposition": f'attachment; filename="{sanitized_title}.mp3"'
+#                     }
+#                 )
+#     except Exception as e:
+#         logger.error(f"Audio download failed: {e}")
+#         raise HTTPException(status_code=500, detail="Audio download failed")
+
+
 @app.post("/api/download")
 async def download_audio(body: DownloadRequest, request: Request):
     logger.info("Extracting audio info...")
@@ -143,16 +185,16 @@ async def download_audio(body: DownloadRequest, request: Request):
 
                 sanitized_title = sanitize_filename(info.get('title', 'audio'))
 
-                return StreamingResponse(
-                    open(audio_file, "rb"),
+                return FileResponse(
+                    path=audio_file,
                     media_type="audio/mpeg",
-                    headers={
-                        "Content-Disposition": f'attachment; filename="{sanitized_title}.mp3"'
-                    }
+                    filename=f"{sanitized_title}.mp3"
                 )
+
     except Exception as e:
         logger.error(f"Audio download failed: {e}")
         raise HTTPException(status_code=500, detail="Audio download failed")
+
 
 @app.post("/api/extract-docx")
 async def extract_docx(file: UploadFile = File(...)):
