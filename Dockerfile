@@ -16,7 +16,6 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy the FastAPI app code to the container
 COPY main.py /usr/app
 
-COPY cookies.txt /usr/app/cookies.txt
 
 ENV PORT 80
 ENV FFMPEG_LOCATION /usr/bin/ffmpeg
