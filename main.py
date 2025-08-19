@@ -125,7 +125,7 @@ async def download_audio(body: DownloadRequest, request: Request):
                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
                 'noplaylist': True,
                 'quiet': True,
-                'cookiefile': '/etc/secrets/www.youtube.com_cookies.txt',
+                'cookiefile': 'cookies.txt',
                 'no_write_cookies': True,
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
