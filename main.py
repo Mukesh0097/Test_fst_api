@@ -116,20 +116,79 @@ async def transcribe_chunk(session, chunk_path: Path):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# @app.post("/api/download")
+# async def download_audio(body: DownloadRequest, request: Request):
+#     logger.info("Extracting audio info...")
+#     try:
+#         with tempfile.TemporaryDirectory() as temp_dir:
+#             ydl_opts = {
+#                 'format': 'bestaudio/best',
+#                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+#                 'noplaylist': True,
+#                 'quiet': True,
+#                 'cookiefile': '/etc/secrets/youtube.txt',
+#                 'no_write_cookies': True,
+#                 'extractor_args': {
+#                     'youtube': [
+#                         'player-client=default,mweb',
+#                         'po_token=mweb.player'+ PO_TOKEN if PO_TOKEN else ''
+#                     ]
+#                 },
+#                 'postprocessors': [{
+#                     'key': 'FFmpegExtractAudio',
+#                     'preferredcodec': 'mp3',
+#                     'preferredquality': '192',
+#                 }],
+#             }
+
+#             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+#                 info = ydl.extract_info(body.url, download=True)
+#                 filename = ydl.prepare_filename(info)
+#                 audio_file = os.path.splitext(filename)[0] + '.mp3'
+#                 logger.info(f"Audio file path: {audio_file}")
+
+#                 if not os.path.exists(audio_file):
+#                     raise HTTPException(status_code=500, detail="Audio file not found")
+
+#                 sanitized_title = sanitize_filename(info.get('title', 'audio'))
+
+#                 return StreamingResponse(
+#                     open(audio_file, "rb"),
+#                     media_type="audio/mpeg",
+#                     headers={
+#                         "Content-Disposition": f'attachment; filename="{sanitized_title}.mp3"'
+#                     }
+#                 )
+#     except Exception as e:
+#         logger.error(f"Audio download failed: {e}")
+#         raise HTTPException(status_code=500, detail="Audio download failed")
+
+
 @app.post("/api/download")
 async def download_audio(body: DownloadRequest, request: Request):
     logger.info("Extracting audio info...")
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
+            # Create cookiefile in writable temp directory if needed
+            cookiefile_path = None
+            youtube_cookies = os.getenv('YOUTUBE_COOKIES')  # Set this in Render env vars if needed
+            
+            if youtube_cookies:
+                cookiefile_path = os.path.join(temp_dir, 'cookies.txt')
+                with open(cookiefile_path, 'w') as f:
+                    f.write(youtube_cookies)
+                logger.info("Created temporary cookie file")
+            
             ydl_opts = {
                 'format': 'bestaudio/best',
                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
                 'noplaylist': True,
                 'quiet': True,
+                'no_write_cookies': True,
                 'extractor_args': {
                     'youtube': [
                         'player-client=default,mweb',
-                        'po_token=mweb.player'+ PO_TOKEN if PO_TOKEN else ''
+                        'po_token=mweb.player' + PO_TOKEN if PO_TOKEN else ''
                     ]
                 },
                 'postprocessors': [{
@@ -138,29 +197,63 @@ async def download_audio(body: DownloadRequest, request: Request):
                     'preferredquality': '192',
                 }],
             }
-
+            
+            # Only add cookiefile if we created one
+            if cookiefile_path:
+                ydl_opts['cookiefile'] = cookiefile_path
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.info(f"Downloading audio from: {body.url}")
                 info = ydl.extract_info(body.url, download=True)
+                
+                # Get the downloaded file path
                 filename = ydl.prepare_filename(info)
                 audio_file = os.path.splitext(filename)[0] + '.mp3'
+                
                 logger.info(f"Audio file path: {audio_file}")
-
+                
                 if not os.path.exists(audio_file):
-                    raise HTTPException(status_code=500, detail="Audio file not found")
-
+                    logger.error(f"Audio file not found at: {audio_file}")
+                    # Try to find any mp3 file in the temp directory
+                    mp3_files = [f for f in os.listdir(temp_dir) if f.endswith('.mp3')]
+                    if mp3_files:
+                        audio_file = os.path.join(temp_dir, mp3_files[0])
+                        logger.info(f"Found alternative audio file: {audio_file}")
+                    else:
+                        raise HTTPException(status_code=500, detail="Audio file not found after download")
+                
+                # Sanitize the title for filename
                 sanitized_title = sanitize_filename(info.get('title', 'audio'))
-
+                logger.info(f"Serving file: {sanitized_title}.mp3")
+                
+                # Read file content into memory since temp_dir will be cleaned up
+                with open(audio_file, "rb") as f:
+                    audio_content = f.read()
+                
+                # Create a BytesIO object to stream the content
+                from io import BytesIO
+                audio_stream = BytesIO(audio_content)
+                
                 return StreamingResponse(
-                    open(audio_file, "rb"),
+                    audio_stream,
                     media_type="audio/mpeg",
                     headers={
                         "Content-Disposition": f'attachment; filename="{sanitized_title}.mp3"'
                     }
                 )
+                
+    except yt_dlp.DownloadError as e:
+        logger.error(f"yt-dlp download error: {e}")
+        raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
+    except FileNotFoundError as e:
+        logger.error(f"File not found error: {e}")
+        raise HTTPException(status_code=500, detail="Downloaded file not found")
+    except PermissionError as e:
+        logger.error(f"Permission error: {e}")
+        raise HTTPException(status_code=500, detail="Permission denied accessing files")
     except Exception as e:
         logger.error(f"Audio download failed: {e}")
-        raise HTTPException(status_code=500, detail="Audio download failed")
-
+        raise HTTPException(status_code=500, detail=f"Audio download failed: {str(e)}")
 
 @app.post("/api/extract-docx")
 async def extract_docx(file: UploadFile = File(...)):
@@ -235,5 +328,3 @@ async def transcribe_audio(file: UploadFile = File(...)):
     
 
 
-# 'cookiefile': '/etc/secrets/youtube.txt',
-# 'no_write_cookies': True,
