@@ -126,8 +126,6 @@ async def download_audio(body: DownloadRequest, request: Request):
                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
                 'noplaylist': True,
                 'quiet': True,
-                'cookiefile': 'usr/app/cookies.txt',
-                'no_write_cookies': True,
                 'extractor_args': {
                     'youtube': [
                         'player-client=default,mweb',
@@ -237,3 +235,5 @@ async def transcribe_audio(file: UploadFile = File(...)):
     
 
 
+# 'cookiefile': '/etc/secrets/youtube.txt',
+# 'no_write_cookies': True,
