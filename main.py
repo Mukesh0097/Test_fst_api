@@ -28,6 +28,7 @@ app = FastAPI()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_URL = "https://api.openai.com/v1/audio/transcriptions"
+PO_TOKEN = os.getenv("PO_TOKEN")
 
 class DownloadRequest(BaseModel):
     url: str
@@ -127,6 +128,12 @@ async def download_audio(body: DownloadRequest, request: Request):
                 'quiet': True,
                 'cookiefile': '/usr/app/cookies.txt',
                 'no_write_cookies': True,
+                'extractor_args': {
+                    'youtube': [
+                        'player-client=default,mweb',
+                        'po_token=mweb.player'+ PO_TOKEN if PO_TOKEN else ''
+                    ]
+                },
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
