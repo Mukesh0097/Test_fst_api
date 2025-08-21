@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File,Form
-from fastapi.responses import StreamingResponse, JSONResponse,FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from docx import Document
@@ -18,6 +18,9 @@ import shutil
 import uuid
 import subprocess
 from openai import OpenAI
+from elevenlabs.client import ElevenLabs
+import aiofiles 
+from io import BytesIO
 
 
 load_dotenv()
@@ -29,6 +32,9 @@ app = FastAPI()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_URL = "https://api.openai.com/v1/audio/transcriptions"
 PO_TOKEN = os.getenv("PO_TOKEN")
+elevenlabs = ElevenLabs(
+    api_key=os.getenv("ELEVENLABS_API_KEY"),
+)
 
 class DownloadRequest(BaseModel):
     url: str
@@ -126,14 +132,14 @@ async def transcribe_chunk(session, chunk_path: Path):
 #                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
 #                 'noplaylist': True,
 #                 'quiet': True,
-#                 'cookiefile': '/etc/secrets/youtube.txt',
-#                 'no_write_cookies': True,
-#                 'extractor_args': {
-#                     'youtube': [
-#                         'player-client=default,mweb',
-#                         'po_token=mweb.player'+ PO_TOKEN if PO_TOKEN else ''
-#                     ]
-#                 },
+#                 # 'cookiefile': '/etc/secrets/youtube.txt',
+#                 # 'no_write_cookies': True,
+#                 # 'extractor_args': {
+#                 #     'youtube': [
+#                 #         'player-client=default,mweb',
+#                 #         'po_token=mweb.player'+ PO_TOKEN if PO_TOKEN else ''
+#                 #     ]
+#                 # },
 #                 'postprocessors': [{
 #                     'key': 'FFmpegExtractAudio',
 #                     'preferredcodec': 'mp3',
@@ -276,54 +282,91 @@ async def extract_docx(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Failed to extract DOCX content")
 
 
-@app.post("/api/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
+# @app.post("/api/transcribe")
+# async def transcribe_audio(file: UploadFile = File(...)):
+#     if not OPENAI_API_KEY:
+#         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
 
-    # Create temp working directory
+#     # Create temp working directory
+#     session_id = uuid.uuid4().hex
+#     work_dir = Path(f"tmp_{session_id}")
+#     chunks_dir = work_dir / "chunks"
+#     chunks_dir.mkdir(parents=True, exist_ok=True)
+
+#     temp_file_path = work_dir / file.filename
+#     try:
+#         # Save uploaded file
+#         with open(temp_file_path, "wb") as f:
+#             f.write(await file.read())
+
+#         # Split into ~10 sec chunks using ffmpeg
+#         subprocess.run(
+#             [
+#                 "ffmpeg", "-i", str(temp_file_path),
+#                 "-f", "segment", "-segment_time", "600",
+#                 "-c", "copy", f"{chunks_dir}/chunk_%03d.wav", "-y"
+#             ],
+#             check=True
+#         )
+
+#         # Get sorted list of chunk files
+#         chunk_files = sorted(chunks_dir.glob("chunk_*.wav"))
+#         if not chunk_files:
+#             raise HTTPException(status_code=400, detail="No audio chunks created")
+
+#         # Transcribe chunks in parallel
+#         async with aiohttp.ClientSession() as session:
+#             tasks = [transcribe_chunk(session, chunk) for chunk in chunk_files]
+#             results = await asyncio.gather(*tasks)
+        
+#          # merge all segments into one single object
+#         merged = merge_results(results)
+
+#         return merged
+#     except subprocess.CalledProcessError as e:
+#         raise HTTPException(status_code=500, detail=f"FFmpeg error: {e}")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         # Cleanup temp files
+#         shutil.rmtree(work_dir, ignore_errors=True)
+
+
+
+
+@app.post("/api/transcribe")
+async def elevanlabs_transcribe(file: UploadFile = File(...)):
     session_id = uuid.uuid4().hex
     work_dir = Path(f"tmp_{session_id}")
-    chunks_dir = work_dir / "chunks"
-    chunks_dir.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     temp_file_path = work_dir / file.filename
     try:
         # Save uploaded file
-        with open(temp_file_path, "wb") as f:
-            f.write(await file.read())
+        async with aiofiles.open(temp_file_path, "wb") as f:
+            content = await file.read()
+            await f.write(content)
 
-        # Split into ~10 sec chunks using ffmpeg
-        subprocess.run(
-            [
-                "ffmpeg", "-i", str(temp_file_path),
-                "-f", "segment", "-segment_time", "600",
-                "-c", "copy", f"{chunks_dir}/chunk_%03d.wav", "-y"
-            ],
-            check=True
+        # Read file into memory (BytesIO like example.py)
+        with open(temp_file_path, "rb") as audio_file:
+            audio_data = BytesIO(audio_file.read())
+
+        # Send audio to ElevenLabs STT API
+        transcription = elevenlabs.speech_to_text.convert(
+            file=audio_data,
+            model_id="scribe_v1",   # Only scribe_v1 supported
+            language_code="eng",    # or None for auto-detect
+            diarize=True            # Enable speaker diarization
         )
 
-        # Get sorted list of chunk files
-        chunk_files = sorted(chunks_dir.glob("chunk_*.wav"))
-        if not chunk_files:
-            raise HTTPException(status_code=400, detail="No audio chunks created")
+        return transcription
 
-        # Transcribe chunks in parallel
-        async with aiohttp.ClientSession() as session:
-            tasks = [transcribe_chunk(session, chunk) for chunk in chunk_files]
-            results = await asyncio.gather(*tasks)
-        
-         # merge all segments into one single object
-        merged = merge_results(results)
-
-        return merged
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"FFmpeg error: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
     finally:
-        # Cleanup temp files
         shutil.rmtree(work_dir, ignore_errors=True)
+
 
     
 
